@@ -19,7 +19,7 @@ after(async()=>{if(child.exitCode===null){child.kill();await once(child,'exit')}
 const request=(path,method='GET',value,auth=key)=>fetch(base+path,{method,headers:{Authorization:`Bearer ${auth}`,'Content-Type':'application/json'},body:value?JSON.stringify(value):undefined});
 const item={title:'테스트 머그컵',summary:'매일 쓰기 좋은 컵',url:'https://link.coupang.com/a/example?affiliate=keep',image:'',category:'살림·주방'};
 test('public page and empty persistent collection',async()=>{
- const page=await request('/');assert.equal(page.status,200);assert.match(await page.text(),/마음에/);
+ const page=await request('/');assert.equal(page.status,200);assert.match(await page.text(),/aria-label="상품 검색"/);
  assert.deepEqual(await(await request('/api/links')).json(),[]);
 });
 test('mutation requires administrator authentication',async()=>{

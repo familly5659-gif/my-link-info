@@ -7,7 +7,7 @@ const samples = [
   ['산뜻하게 시작하는 데일리 파우치','작은 소지품을 차곡차곡. 가방을 바꿀 때도 이것 하나만 챙기면 끝.','패션·뷰티','토스쇼핑','👝'],
   ['몰입이 필요한 순간, 무선 헤드폰','좋아하는 음악과 나만의 시간. 일할 때도 쉬는 날에도 함께해요.','디지털','쿠팡','🎧']
 ].map((x,i)=>({id:`demo-${i}`,title:x[0],summary:x[1],category:x[2],platform:x[3],symbol:x[4],demo:true}));
-let links=[], category='전체', key=sessionStorage.getItem('moa-key')||'', editId=null;
+let links=[], key=sessionStorage.getItem('moa-key')||'', editId=null;
 const escape = v => String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function api(path, options={}) {
   const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',Authorization:`Bearer ${key}`,...options.headers}});
@@ -18,14 +18,13 @@ function adminState(){ $('#add').hidden=!key;$('#logout').hidden=!key;$('#manage
 function render(){
   const query=$('#search').value.trim().toLowerCase();
   const source=links.length?links:samples;
-  const visible=source.filter(l=>(category==='전체'||l.category===category)&&`${l.title} ${l.summary}`.toLowerCase().includes(query));
-  $('#count').textContent=links.length;$('#demo-notice').hidden=!!links.length;$('#empty').hidden=!!visible.length;
-  $('#cards').innerHTML=visible.map((l,i)=>`<article class="card">${l.demo?'<div>':`<a href="${escape(l.url)}" target="_blank" rel="sponsored noopener noreferrer" aria-label="${escape(l.title)} 상품 보기">`}<div class="thumb" data-tone="${i%6+1}">${l.image?`<img src="${escape(/\.(cdninstagram|fbcdn|coupangcdn)\.(com|net)(\/|$)/.test(l.image)?`/thumbnail/${l.id}`:l.image)}" loading="lazy" alt="${escape(l.title)}" referrerpolicy="no-referrer">`:`<span class="${l.demo?'thumb-mark':'image-fallback'}">${l.demo?l.symbol:'moa'}</span>`}<span class="category-tag">${escape(l.category)}</span>${l.demo?'<span class="sample-tag">예시 아이템</span>':''}</div><div class="card-body"><div class="platform">${escape(l.platform)}</div><h3>${escape(l.title)}</h3><p>${escape(l.summary)||'마음에 드는 발견을 함께 나눠요.'}</p><div class="card-bottom"><span>${l.demo?'내 취향으로 채워보세요':'상품 보러 가기'}</span><strong>↗</strong></div></div>${l.demo?'</div>':'</a>'}${key&&!l.demo?`<div class="card-controls"><button data-edit="${l.id}">수정</button><button data-delete="${l.id}">삭제</button></div>`:''}</article>`).join('');
+  const visible=source.filter(l=>`${l.title} ${l.summary}`.toLowerCase().includes(query));
+  $('#count').textContent=visible.length;$('#collection-label').textContent=links.length?'전체 상품':'예시 상품';$('#demo-notice').hidden=!!links.length;$('#empty').hidden=!!visible.length;
+  $('#cards').innerHTML=visible.map((l,i)=>`<article class="card">${l.demo?'<div class="product-row">':`<a class="product-row" href="${escape(l.url)}" target="_blank" rel="sponsored noopener noreferrer" aria-label="${escape(l.title)} 상품 보기">`}<div class="thumb" data-tone="${i%6+1}">${l.image?`<img src="${escape(/\.(cdninstagram|fbcdn|coupangcdn)\.(com|net)(\/|$)/.test(l.image)?`/thumbnail/${l.id}`:l.image)}" loading="lazy" alt="${escape(l.title)}" referrerpolicy="no-referrer">`:`<span class="${l.demo?'thumb-mark':'image-fallback'}">${l.demo?l.symbol:'moa'}</span>`}</div><div class="card-body"><h2>${escape(l.title)}</h2><p>${escape(l.summary)||'상품 링크를 확인해 보세요.'}</p><span class="platform">${l.demo?'예시 · ':''}${escape(l.platform)}</span></div>${l.demo?'':'<span class="row-arrow" aria-hidden="true">›</span>'}${l.demo?'</div>':'</a>'}${key&&!l.demo?`<div class="card-controls"><button data-edit="${l.id}">수정</button><button data-delete="${l.id}">삭제</button></div>`:''}</article>`).join('');
   document.querySelectorAll('.thumb img').forEach(img=>img.addEventListener('error',()=>{const fallback=document.createElement('span');fallback.className='image-fallback';fallback.textContent='moa';img.replaceWith(fallback)}));
 }
 async function refresh(){links=await api('/api/links');render()}
 $('#search').addEventListener('input',render);
-$('#filters').addEventListener('click',e=>{if(!e.target.matches('[data-category]'))return;category=e.target.dataset.category;document.querySelectorAll('.chip').forEach(b=>b.classList.toggle('active',b.dataset.category===category));render()});
 $('#manage').onclick=()=>$('#login-dialog').showModal();
 $('#logout').onclick=()=>{key='';sessionStorage.removeItem('moa-key');adminState();notify('로그아웃했어요.')};
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
