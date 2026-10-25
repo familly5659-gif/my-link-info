@@ -116,3 +116,45 @@ test('browser startup needs no additional module route and exposes a matching se
  assert.deepEqual(await response.json(),{version:module.APP_VERSION});
  const page=await request('/');assert.equal(page.headers.get('cache-control'),'no-store');
 });
+
+test('photo uploads require authentication and integrate with editable product thumbnails', async () => {
+ const sharp=(await import('sharp')).default;
+ const photo=await sharp({create:{width:30,height:20,channels:3,background:'#ddaa66'}}).jpeg().toBuffer();
+ const upload=auth=>fetch(base+'/api/uploads',{method:'POST',headers:{Authorization:`Bearer ${auth}`,'Content-Type':'image/jpeg'},body:photo});
+ assert.equal((await upload('wrong')).status,401);
+ const response=await upload(key);assert.equal(response.status,201);
+ const result=await response.json();assert.match(result.image,/^\/uploads\/[a-f0-9]{64}\.webp$/);
+ const image=await fetch(base+result.image);assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/webp');
+ assert.equal((await sharp(Buffer.from(await image.arrayBuffer())).metadata()).format,'webp');
+ const product={...item,title:'직접 찍은 사진 상품',image:result.image,category:'주방',subcategory:'수세미'};
+ assert.equal((await request('/api/links','POST',product)).status,200);
+ const record=(await(await request('/api/links')).json()).find(link=>link.title===product.title);
+ assert.equal(record.image,result.image);
+ assert.equal((await request(`/api/links/${record.id}`,'PUT',{...product,summary:'사진은 그대로 유지'})).status,200);
+ assert.equal((await request('/api/links','POST',{...product,image:'/uploads/'+ '0'.repeat(64)+'.webp'})).status,400);
+ assert.equal((await request('/api/links','POST',{...product,image:'/uploads/../../.data/admin-key'})).status,400);
+ assert.equal((await fetch(base+'/uploads/'+ '0'.repeat(64)+'.webp')).status,404);
+ child.kill();await once(child,'exit');
+ child=spawn(process.execPath,['--use-env-proxy','server.js'],{env:{...process.env,DATA_DIR:dir,PORT:'0',ADMIN_KEY:''},stdio:['ignore','pipe','pipe']});
+ const [output]=await once(child.stdout,'data');base=`http://127.0.0.1:${String(output).match(/port (\d+)/)[1]}`;
+ assert.equal((await fetch(base+result.image)).status,200);
+ const restarted=(await(await request('/api/links')).json()).find(link=>link.id===record.id);assert.equal(restarted.image,result.image);
+});
+
+test('upload endpoint rejects invalid image bytes and an oversized body',async()=>{
+ const sendPhoto=body=>fetch(base+'/api/uploads',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'image/jpeg'},body});
+ assert.equal((await sendPhoto(Buffer.from('this is not a JPEG'))).status,400);
+ assert.equal((await sendPhoto(Buffer.alloc(10*1024*1024+1))).status,413);
+});
+
+test('cancelled or oversized chunked uploads do not stop the server', async () => {
+ const {request:httpRequest}=await import('node:http');
+ await new Promise(resolve=>{
+  const upload=httpRequest(base+'/api/uploads',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'image/jpeg'}});
+  upload.on('error',()=>{});upload.on('close',resolve);upload.write(Buffer.alloc(100));setTimeout(()=>upload.destroy(),10);
+ });
+ const stream=new ReadableStream({start(controller){controller.enqueue(new Uint8Array(10*1024*1024+1));controller.close()}});
+ const response=await fetch(base+'/api/uploads',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'image/jpeg'},body:stream,duplex:'half'});
+ assert.equal(response.status,413);
+ assert.equal((await request('/api/status')).status,200);
+});

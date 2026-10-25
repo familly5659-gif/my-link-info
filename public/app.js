@@ -1,5 +1,5 @@
 // Keep the browser entry self-contained: older running servers only know /app.js.
-export const APP_VERSION = '0.2.1';
+export const APP_VERSION = '0.2.2';
 
 export const categories = {
   '주방': ['수세미', '주방세제', '조리도구', '식기·컵', '주방수납', '기타'],
@@ -179,6 +179,88 @@ $('#login-form').onsubmit = async event => {
 };
 
 const form = $('#link-form');
+let photoAttempt = 0;
+let photoController = null;
+let uploadingPhoto = false;
+let savingProduct = false;
+function updateEditorButtons() {
+  $('#save-link').disabled = uploadingPhoto || savingProduct;
+  $('#image-file').disabled = savingProduct;
+  form.elements.image.readOnly = savingProduct;
+  $('#remove-image').disabled = savingProduct;
+  $('#fetch-meta').disabled = uploadingPhoto || savingProduct || !!metadataController;
+}
+function cancelPhoto() {
+  photoAttempt++;
+  photoController?.abort();
+  photoController = null;
+  uploadingPhoto = false;
+  updateEditorButtons();
+}
+function showImagePreview() {
+  const value = form.elements.image.value.trim();
+  const localPhoto = /^\/uploads\/[a-f0-9]{64}\.webp$/.test(value);
+  let safe = localPhoto;
+  $('#image-url-label').hidden = localPhoto;
+  try { const url = new URL(value); safe = url.protocol === 'https:' && !url.username && !url.password; } catch {}
+  $('#image-preview').hidden = !safe;
+  if (safe) $('#preview-image').src = value;
+  else $('#preview-image').removeAttribute('src');
+}
+$('#preview-image').onerror = () => {
+  $('#image-preview').hidden = true;
+  $('#image-url-label').hidden = false;
+  $('#upload-status').textContent = '썸네일 미리보기를 불러오지 못했어요. 사진 파일을 선택하거나 이미지 주소를 확인해 주세요.';
+};
+form.elements.image.addEventListener('input', () => {
+  cancelPhoto();
+  $('#image-file').value = '';
+  $('#upload-status').textContent = '입력한 이미지 주소를 썸네일로 사용합니다.';
+  showImagePreview();
+});
+$('#remove-image').onclick = () => {
+  cancelPhoto();
+  form.elements.image.value = '';
+  $('#image-file').value = '';
+  $('#upload-status').textContent = '썸네일을 해제했어요. 상품을 저장하면 적용됩니다.';
+  showImagePreview();
+};
+$('#image-file').onchange = async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  cancelPhoto();
+  cancelMetadata();
+  if (!file.size || file.size > 10 * 1024 * 1024) {
+    $('#upload-status').textContent = '빈 파일은 사용할 수 없으며, 사진 크기는 최대 10MB입니다.';
+    event.target.value = '';
+    return;
+  }
+  if (file.type && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    $('#upload-status').textContent = 'JPEG·PNG·WebP 사진을 선택해 주세요. HEIC 사진은 JPEG 등으로 변환한 뒤 선택하세요.';
+    event.target.value = '';
+    return;
+  }
+  const attempt = photoAttempt;
+  photoController = new AbortController();
+  uploadingPhoto = true;
+  updateEditorButtons();
+  $('#upload-status').textContent = '사진을 업로드하고 있어요. 완료 후 상품을 저장해 주세요.';
+  try {
+    const result = await api('/api/uploads', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file, signal: photoController.signal });
+    if (attempt !== photoAttempt || !$('#editor').open) return;
+    form.elements.image.value = result.image;
+    showImagePreview();
+    $('#upload-status').textContent = '사진이 준비됐어요. 아래의 저장 버튼을 누르면 상품 썸네일로 적용됩니다.';
+  } catch (error) {
+    if (attempt === photoAttempt && error.name !== 'AbortError') $('#upload-status').textContent = error.message;
+  } finally {
+    if (attempt === photoAttempt) {
+      uploadingPhoto = false;
+      photoController = null;
+      updateEditorButtons();
+    }
+  }
+};
 form.elements.category.innerHTML = Object.keys(categories).map(name => `<option>${escape(name)}</option>`).join('');
 function populateSubcategories(value = '기타') {
   const names = categories[form.elements.category.value];
@@ -194,10 +276,10 @@ function cancelMetadata() {
   metadataAttempt++;
   metadataController?.abort();
   metadataController = null;
-  $('#fetch-meta').disabled = false;
+  updateEditorButtons();
   $('#fetch-meta').textContent = '↗ 링크에서 상품 정보 가져오기';
 }
-$('#editor').addEventListener('close', cancelMetadata);
+$('#editor').addEventListener('close', () => { cancelMetadata(); cancelPhoto(); });
 form.elements.url.addEventListener('input', () => {
   cancelMetadata();
   $('#meta-status').textContent = '링크가 변경됐어요. 상품 정보를 다시 가져올 수 있습니다.';
@@ -205,6 +287,7 @@ form.elements.url.addEventListener('input', () => {
 
 function openEditor(link) {
   cancelMetadata();
+  cancelPhoto();
   editId = link?.id || null;
   form.reset();
   form.querySelector('.form-error').textContent = '';
@@ -216,6 +299,8 @@ function openEditor(link) {
     form.elements.category.value = activeCategory || '주방';
     populateSubcategories(activeSubcategory || '기타');
   }
+  $('#upload-status').textContent = '직접 찍은 JPEG·PNG·WebP 사진을 선택하세요. 최대 10MB까지 지원합니다.';
+  showImagePreview();
   $('#editor-title').textContent = link ? '상품 수정' : '새 상품 추가';
   $('#editor').showModal();
 }
@@ -249,6 +334,7 @@ $('#fetch-meta').onclick = async () => {
       return;
     }
     for (const name of fields) form.elements[name].value = meta[name];
+    showImagePreview();
     const labels = { title: '상품명', summary: '설명', image: '썸네일' };
     const missing = Object.keys(labels).filter(name => !fields.includes(name));
     $('#meta-status').textContent = missing.length
@@ -259,15 +345,17 @@ $('#fetch-meta').onclick = async () => {
   } finally {
     if (attempt === metadataAttempt) {
       metadataController = null;
-      button.disabled = false;
+      updateEditorButtons();
       button.textContent = '↗ 링크에서 상품 정보 가져오기';
     }
   }
 };
 form.onsubmit = async event => {
   event.preventDefault();
-  const button = $('#save-link');
-  button.disabled = true;
+  if (uploadingPhoto || savingProduct) return;
+  cancelMetadata();
+  savingProduct = true;
+  updateEditorButtons();
   try {
     const values = Object.fromEntries(new FormData(form));
     await api(editId ? `/api/links/${editId}` : '/api/links', { method: editId ? 'PUT' : 'POST', body: JSON.stringify(values) });
@@ -280,7 +368,7 @@ form.onsubmit = async event => {
     $('#editor').close();
     notify('보관함에 저장했어요.');
   } catch (error) { form.querySelector('.form-error').textContent = error.message; }
-  finally { button.disabled = false; }
+  finally { savingProduct = false; updateEditorButtons(); }
 };
 $('#cards').onclick = async event => {
   const edit = event.target.closest('[data-edit]');

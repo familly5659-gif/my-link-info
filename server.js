@@ -1,10 +1,12 @@
 import http from 'node:http';
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { fetchMetadata, validUrl, MetadataError } from './metadata.js';
+import { readUpload, savePhoto, UploadError, UPLOAD_PATH } from './uploads.js';
 import { normalizeCategory, APP_VERSION } from './public/categories.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +39,14 @@ const server = http.createServer(async (req, res) => {
   const send = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); };
   try {
     if (path === '/api/status' && req.method === 'GET') return send(200, {version:APP_VERSION});
+    const uploaded = path.match(UPLOAD_PATH);
+    if (uploaded && req.method === 'GET') {
+      let photo;
+      try { photo = await readFile(resolve(dataDir, 'uploads', uploaded[1])); }
+      catch (error) { if (error.code === 'ENOENT') return send(404, {error:'사진을 찾을 수 없습니다.'}); throw error; }
+      res.writeHead(200, {'Content-Type':'image/webp','Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff'});
+      return res.end(photo);
+    }
     const thumbnail = path.match(/^\/thumbnail\/(\d+)$/);
     if (thumbnail && req.method === 'GET') {
       const record = db.prepare('SELECT image FROM links WHERE id=?').get(Number(thumbnail[1]));
@@ -61,6 +71,7 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/links' && req.method === 'GET') return send(200, db.prepare('SELECT * FROM links ORDER BY id DESC').all());
     if (path.startsWith('/api/')) {
       if (!authorized(req)) return send(401, { error: '관리자 키를 확인해 주세요.' });
+      if (path === '/api/uploads' && req.method === 'POST') return send(201, await savePhoto(await readUpload(req), dataDir));
       if (path === '/api/auth' && req.method === 'POST') return send(200, { ok: true });
       if (path === '/api/metadata' && req.method === 'POST') { const {url} = await body(req); return send(200, await fetchMetadata(url)); }
       if (path === '/api/links/bulk-delete' && req.method === 'POST') {
@@ -77,7 +88,14 @@ const server = http.createServer(async (req, res) => {
         const v = await body(req);
         const classification = normalizeCategory(v.category, v.subcategory ?? '기타');
         if (!validUrl(v.url) || typeof v.title !== 'string' || !v.title.trim() || v.title.length > 160 || typeof (v.summary ?? '') !== 'string' || (v.summary || '').length > 1000 || !classification) return send(400, { error: '제목, 지원하는 링크, 카테고리를 확인해 주세요.' });
-        if (v.image && (!/^https:\/\//.test(v.image) || v.image.length > 2000)) return send(400, { error: '썸네일은 HTTPS 이미지 주소를 입력해 주세요.' });
+        const image = v.image ?? '';
+        let validImage = image === '';
+        if (typeof image === 'string' && image.length <= 2000) {
+          const local = image.match(UPLOAD_PATH);
+          if (local) validImage = existsSync(resolve(dataDir, 'uploads', local[1]));
+          else { try { const url = new URL(image); validImage = url.protocol === 'https:' && !url.username && !url.password; } catch {} }
+        }
+        if (!validImage) return send(400, {error:'HTTPS 이미지 주소를 입력하거나 사진 파일을 업로드해 주세요.'});
         const platform = new URL(v.url).hostname.includes('coupang') ? '쿠팡' : new URL(v.url).hostname.includes('toss') ? '토스쇼핑' : 'Threads';
         const values = [v.title.trim(), v.summary || '', v.url, v.image || '', classification.category, platform, classification.subcategory];
         if (match) { const result = db.prepare('UPDATE links SET title=?,summary=?,url=?,image=?,category=?,platform=?,subcategory=? WHERE id=?').run(...values, Number(match[1])); if (!result.changes) return send(404, {error:'상품을 찾을 수 없습니다.'}); }
@@ -93,6 +111,7 @@ const server = http.createServer(async (req, res) => {
     }
     send(404, {error:'페이지를 찾을 수 없습니다.'});
   } catch (e) {
+    if (e instanceof UploadError) return send(e.status, {error:e.message});
     if (e instanceof MetadataError) return send(e.status, {error:e.message, code:e.code, ...(e.upstreamStatus ? {upstreamStatus:e.upstreamStatus} : {})});
     send(400, { error: e.message === 'fetch failed' ? '자동 수집에 연결하지 못했습니다. 상품 정보를 직접 입력해 주세요.' : e.message }); }
 });
