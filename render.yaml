@@ -1,0 +1,29 @@
+# Creates a PAID, always-on web service and a PAID persistent disk.
+# Review current Render pricing before creating these resources.
+services:
+  - type: web
+    name: eco-log94
+    runtime: node
+    plan: starter
+    branch: main
+    buildCommand: npm ci --ignore-scripts --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /api/status
+    # A disk-backed SQLite service briefly stops during deployments.
+    # Keep deployment manual to avoid interruptions on every GitHub commit.
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_VERSION
+        value: "24.19.0"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /var/data/eco-log94
+      - key: ADMIN_KEY
+        generateValue: true
+    disk:
+      name: eco-log94-data
+      mountPath: /var/data
+      sizeGB: 1
