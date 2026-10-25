@@ -110,4 +110,4 @@ const server = http.createServer(async (req, res) => {
     send(404, {error:'페이지를 찾을 수 없습니다.'});
   } catch (e) { send(400, { error: e.message === 'fetch failed' ? '자동 수집에 연결하지 못했습니다. 상품 정보를 직접 입력해 주세요.' : e.message }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log(`My Link Info v${APP_VERSION} listening on port ${server.address().port}. Admin key file: ${keyPath}`));
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log(`eco.log94 v${APP_VERSION} listening on port ${server.address().port}. Admin key file: ${keyPath}`));

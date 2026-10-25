@@ -36,7 +36,7 @@ a.product-row:hover { background: #f7f9f4; }
 .thumb[data-tone="6"] { background: #e5e8ec; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
 .thumb-mark { font-size: 33px; }
-.image-fallback { color: #a3af96; font: italic 22px Georgia, serif; }
+.image-fallback { color: #a3af96; font: italic 12px Georgia, serif; }
 .card-body { min-width: 0; flex: 1; }
 .card-body h2 { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card-body p { margin: 4px 0; color: var(--muted); font-size: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -49,7 +49,8 @@ a.product-row:hover { background: #f7f9f4; }
 .disclosure { padding: 25px 5px 18px; text-align: center; color: #a0a598; font-size: 10px; line-height: 1.7; }
 footer { display: flex; justify-content: space-between; align-items: center; padding: 15px 0 25px; border-top: 1px solid var(--line); }
 .wordmark { color: #7e8c71; font-size: 24px; font-weight: 700; letter-spacing: -1px; }
-.wordmark span { font-size: 10px; font-weight: 400; letter-spacing: 0; margin-left: 10px; color: #929b8b; }
+.brand-block { min-width: 0; }
+.site-description { margin: 6px 0 0; color: #929b8b; font-size: 11px; line-height: 1.6; }
 .primary { padding: 10px 14px; border: 1px solid var(--green); border-radius: 7px; background: var(--green); color: #fff; font-size: 12px; }
 .primary:hover { background: #244330; }
 .list-heading .primary { padding: 7px 10px; font-size: 11px; }

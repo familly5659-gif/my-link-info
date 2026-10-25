@@ -103,7 +103,7 @@ function render() {
   $('#bulk-toolbar').hidden = !key || !links.length || !serverCompatible;
   $('#cards').innerHTML = visible.map((link, index) => `<article class="card">
     ${link.demo ? '<div class="product-row">' : `<a class="product-row" href="${escape(link.url)}" target="_blank" rel="sponsored noopener noreferrer" aria-label="${escape(link.title)} 상품 보기">`}
-      <div class="thumb" data-tone="${index % 6 + 1}">${link.image ? `<img src="${escape(/\.(cdninstagram|fbcdn|coupangcdn)\.(com|net)(\/|$)/.test(link.image) ? `/thumbnail/${link.id}` : link.image)}" loading="lazy" alt="${escape(link.title)}" referrerpolicy="no-referrer">` : `<span class="${link.demo ? 'thumb-mark' : 'image-fallback'}">${link.demo ? link.symbol : 'moa'}</span>`}</div>
+      <div class="thumb" data-tone="${index % 6 + 1}">${link.image ? `<img src="${escape(/\.(cdninstagram|fbcdn|coupangcdn)\.(com|net)(\/|$)/.test(link.image) ? `/thumbnail/${link.id}` : link.image)}" loading="lazy" alt="${escape(link.title)}" referrerpolicy="no-referrer">` : `<span class="${link.demo ? 'thumb-mark' : 'image-fallback'}">${link.demo ? link.symbol : 'eco.log94'}</span>`}</div>
       <div class="card-body"><h2>${escape(link.title)}</h2><p>${escape(link.summary) || '상품 링크를 확인해 보세요.'}</p><span class="platform">${link.demo ? '예시 · ' : ''}${escape(link.category)} › ${escape(link.subcategory)} · ${escape(link.platform)}</span></div>
       ${link.demo ? '' : '<span class="row-arrow" aria-hidden="true">›</span>'}
     ${link.demo ? '</div>' : '</a>'}
@@ -112,7 +112,7 @@ function render() {
   document.querySelectorAll('.thumb img').forEach(img => img.addEventListener('error', () => {
     const fallback = document.createElement('span');
     fallback.className = 'image-fallback';
-    fallback.textContent = 'moa';
+    fallback.textContent = 'eco.log94';
     img.replaceWith(fallback);
   }));
   syncSelection();
@@ -269,7 +269,7 @@ $('#bulk-delete').onclick = async () => {
 };
 $('#share').onclick = async () => {
   try {
-    if (navigator.share) await navigator.share({ title: '모아 — 나의 취향 보관함', url: location.href });
+    if (navigator.share) await navigator.share({ title: 'eco.log94', text: 'eco.log94가 고른 상품과 리뷰', url: location.href });
     else { await navigator.clipboard.writeText(location.href); notify('페이지 주소를 복사했어요.'); }
   } catch (error) { if (error.name !== 'AbortError') notify('브라우저 주소창에서 주소를 복사해 주세요.'); }
 };
