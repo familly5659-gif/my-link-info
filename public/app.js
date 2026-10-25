@@ -1,5 +1,22 @@
-import { categories } from './categories.js';
+// Keep the browser entry self-contained: older running servers only know /app.js.
+export const APP_VERSION = '0.2.1';
 
+export const categories = {
+  '주방': ['수세미', '주방세제', '조리도구', '식기·컵', '주방수납', '기타'],
+  '청소': ['청소용품', '세탁용품', '욕실청소', '청소기·기기', '기타'],
+  '생활·수납': ['수납·정리', '생활잡화', '인테리어', '기타'],
+  '디지털': ['충전·배터리', '음향기기', '모바일·PC', '기타'],
+  '패션·뷰티': ['패션잡화', '의류', '뷰티', '기타'],
+  '라이프': ['조명', '식품', '취미·여가', '기타'],
+};
+
+export function normalizeCategory(category, subcategory = '기타') {
+  const main = category === '살림·주방' ? '주방' : category;
+  if (!Object.hasOwn(categories, main) || !categories[main].includes(subcategory)) return null;
+  return { category: main, subcategory };
+}
+
+function initializeApp() {
 const $ = selector => document.querySelector(selector);
 const samples = [
   ['거품이 잘 나는 데일리 수세미', '주방에서 자주 쓰는 수세미, 쓰임에 맞게 골라보세요.', '주방', '수세미', '쿠팡', '🧽'],
@@ -19,6 +36,7 @@ let activeCategory = '';
 let activeSubcategory = '';
 let selected = new Set();
 let deleting = false;
+let serverCompatible = false;
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const source = () => links.length ? links : samples;
 
@@ -81,15 +99,15 @@ function render() {
   $('#demo-notice').hidden = !!links.length;
   $('#empty').hidden = !!visible.length;
   $('#empty').textContent = $('#search').value.trim() ? '검색 결과가 없어요. 다른 단어로 찾아보세요.' : '아직 이 분류에 등록된 상품이 없어요.';
-  $('#admin-help').hidden = !key;
-  $('#bulk-toolbar').hidden = !key || !links.length;
+  $('#admin-help').hidden = !key || !serverCompatible;
+  $('#bulk-toolbar').hidden = !key || !links.length || !serverCompatible;
   $('#cards').innerHTML = visible.map((link, index) => `<article class="card">
     ${link.demo ? '<div class="product-row">' : `<a class="product-row" href="${escape(link.url)}" target="_blank" rel="sponsored noopener noreferrer" aria-label="${escape(link.title)} 상품 보기">`}
       <div class="thumb" data-tone="${index % 6 + 1}">${link.image ? `<img src="${escape(/\.(cdninstagram|fbcdn|coupangcdn)\.(com|net)(\/|$)/.test(link.image) ? `/thumbnail/${link.id}` : link.image)}" loading="lazy" alt="${escape(link.title)}" referrerpolicy="no-referrer">` : `<span class="${link.demo ? 'thumb-mark' : 'image-fallback'}">${link.demo ? link.symbol : 'moa'}</span>`}</div>
       <div class="card-body"><h2>${escape(link.title)}</h2><p>${escape(link.summary) || '상품 링크를 확인해 보세요.'}</p><span class="platform">${link.demo ? '예시 · ' : ''}${escape(link.category)} › ${escape(link.subcategory)} · ${escape(link.platform)}</span></div>
       ${link.demo ? '' : '<span class="row-arrow" aria-hidden="true">›</span>'}
     ${link.demo ? '</div>' : '</a>'}
-    ${key && !link.demo ? `<div class="card-controls"><label class="select-product"><input type="checkbox" data-select="${link.id}" aria-label="${escape(link.title)} 선택"> 선택</label><button data-edit="${link.id}">상품 수정</button><button data-delete="${link.id}">삭제</button></div>` : ''}
+    ${key && serverCompatible && !link.demo ? `<div class="card-controls"><label class="select-product"><input type="checkbox" data-select="${link.id}" aria-label="${escape(link.title)} 선택"> 선택</label><button data-edit="${link.id}">상품 수정</button><button data-delete="${link.id}">삭제</button></div>` : ''}
   </article>`).join('');
   document.querySelectorAll('.thumb img').forEach(img => img.addEventListener('error', () => {
     const fallback = document.createElement('span');
@@ -101,14 +119,14 @@ function render() {
 }
 
 function adminState() {
-  $('#add').hidden = !key;
+  $('#add').hidden = !key || !serverCompatible;
   $('#logout').hidden = !key;
   $('#manage').hidden = !!key;
   render();
 }
 
 async function refresh() {
-  links = await api('/api/links');
+  links = (await api('/api/links')).map(link => ({ ...link, category: link.category === '살림·주방' ? '주방' : link.category, subcategory: link.subcategory || '기타' }));
   render();
 }
 
@@ -256,8 +274,25 @@ $('#share').onclick = async () => {
   } catch (error) { if (error.name !== 'AbortError') notify('브라우저 주소창에서 주소를 복사해 주세요.'); }
 };
 
+async function checkServer() {
+  try {
+    const status = await api('/api/status');
+    serverCompatible = status.version === APP_VERSION;
+    $('#runtime-notice').hidden = serverCompatible;
+    if (!serverCompatible) $('#runtime-notice').textContent = '이전 서버가 실행 중입니다. 서버를 다시 시작한 뒤 이 페이지를 새로고침해 주세요.';
+  } catch {
+    $('#runtime-notice').hidden = false;
+    $('#runtime-notice').textContent = '이전 서버가 실행 중이거나 연결을 확인할 수 없습니다. 서버를 다시 시작한 뒤 이 페이지를 새로고침해 주세요. 저장된 상품은 그대로 유지됩니다.';
+  }
+  adminState();
+}
+
 adminState();
+checkServer();
 refresh().catch(() => {
-  $('#cards').textContent = '보관함을 불러오지 못했어요. 페이지를 새로고침해 주세요.';
+  $('#cards').textContent = '보관함을 불러오지 못했어요. 서버 연결을 확인한 뒤 페이지를 새로고침해 주세요.';
   $('#demo-notice').hidden = true;
 });
+}
+
+if (typeof document !== 'undefined') initializeApp();

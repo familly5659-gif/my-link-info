@@ -83,7 +83,7 @@ test('two-level categories validate pairs and can be edited without changing the
   assert.equal((await request('/api/links','POST',{...item,...classification})).status,400);
  }
  assert.equal((await(await request('/api/links')).json()).length,before);
- const module=await request('/categories.js');assert.equal(module.status,200);assert.match(await module.text(),/수세미/);
+ const module=await request('/app.js');assert.equal(module.status,200);assert.match(await module.text(),/수세미/);
 });
 
 test('bulk deletion is authenticated, rejects invalid selection, and leaves unselected products intact', async () => {
@@ -103,4 +103,16 @@ test('bulk deletion is authenticated, rejects invalid selection, and leaves unse
  const remaining=await(await request('/api/links')).json();
  assert.deepEqual(remaining,before.filter(link=>!ids.slice(0,2).includes(link.id)));
  assert.ok(remaining.some(link=>link.id===ids[2]));
+});
+
+test('browser startup needs no additional module route and exposes a matching server version', async () => {
+ const entry=await request('/app.js');assert.equal(entry.status,200);
+ assert.match(entry.headers.get('content-type'),/javascript/);assert.equal(entry.headers.get('cache-control'),'no-store');
+ // Loading from a data URL also fails if a relative module dependency is introduced.
+ const code=await entry.text();
+ const module=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+ assert.ok(module.categories['주방'].includes('수세미'));
+ const response=await request('/api/status','GET',undefined,'');assert.equal(response.status,200);
+ assert.deepEqual(await response.json(),{version:module.APP_VERSION});
+ const page=await request('/');assert.equal(page.headers.get('cache-control'),'no-store');
 });

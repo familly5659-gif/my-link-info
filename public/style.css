@@ -99,3 +99,5 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 .card-controls [data-edit] { color: var(--green); border: 1px solid #dbe4d5; border-radius: 5px; padding: 6px 10px; font-weight: 600; }
 .card-controls [data-delete] { color: #a36757; }
 #admin-help { margin: 0 0 10px; }
+
+.runtime-notice { padding: 12px; margin: 0 0 12px; border: 1px solid #eadbb8; border-radius: 8px; background: #fffbef; color: #856d3e; font-size: 12px; line-height: 1.7; }

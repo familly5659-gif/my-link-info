@@ -5,7 +5,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { parseMetadata } from './metadata.js';
-import { normalizeCategory } from './public/categories.js';
+import { normalizeCategory, APP_VERSION } from './public/categories.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dataDir = resolve(process.env.DATA_DIR || resolve(root, '.data'));
@@ -52,6 +52,7 @@ const server = http.createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname;
   const send = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); };
   try {
+    if (path === '/api/status' && req.method === 'GET') return send(200, {version:APP_VERSION});
     const thumbnail = path.match(/^\/thumbnail\/(\d+)$/);
     if (thumbnail && req.method === 'GET') {
       const record = db.prepare('SELECT image FROM links WHERE id=?').get(Number(thumbnail[1]));
@@ -103,10 +104,10 @@ const server = http.createServer(async (req, res) => {
       return send(404, { error: '요청을 찾을 수 없습니다.' });
     }
     if (files[path] && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': files[path][1], 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Content-Security-Policy': "default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" });
+      res.writeHead(200, { 'Content-Type': files[path][1], 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Content-Security-Policy': "default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" });
       return res.end(readFileSync(resolve(root, 'public', files[path][0])));
     }
     send(404, {error:'페이지를 찾을 수 없습니다.'});
   } catch (e) { send(400, { error: e.message === 'fetch failed' ? '자동 수집에 연결하지 못했습니다. 상품 정보를 직접 입력해 주세요.' : e.message }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log(`My Link Info listening on port ${server.address().port}. Admin key file: ${keyPath}`));
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log(`My Link Info v${APP_VERSION} listening on port ${server.address().port}. Admin key file: ${keyPath}`));
