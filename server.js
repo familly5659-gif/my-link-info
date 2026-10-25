@@ -4,7 +4,7 @@ import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { parseMetadata } from './metadata.js';
+import { fetchMetadata, validUrl, MetadataError } from './metadata.js';
 import { normalizeCategory, APP_VERSION } from './public/categories.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -20,10 +20,6 @@ if (!db.prepare('PRAGMA table_info(links)').all().some(column => column.name ===
   db.exec("ALTER TABLE links ADD COLUMN subcategory TEXT NOT NULL DEFAULT '기타'");
 }
 db.prepare("UPDATE links SET category='주방' WHERE category='살림·주방'").run();
-const allowed = ['coupang.com', 'toss.im', 'toss.me', 'tossshopping.com', 'threads.com', 'threads.net'];
-export function validUrl(value) {
-  try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') && allowed.some(h => u.hostname === h || u.hostname.endsWith('.' + h)); } catch { return false; }
-}
 function authorized(req) {
   const value = Buffer.from((req.headers.authorization || '').replace(/^Bearer /, ''));
   const expected = Buffer.from(adminKey);
@@ -35,18 +31,6 @@ async function body(req) {
   try { return JSON.parse(text); } catch { throw new Error('올바른 JSON이 필요합니다.'); }
 }
 
-async function metadata(url) {
-  for (let i = 0; i < 5; i++) {
-    if (!validUrl(url)) throw new Error('지원하는 쇼핑·Threads HTTPS 주소만 사용할 수 있습니다.');
-    const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'MyLinkInfo/0.1 (link preview)' } });
-    if ([301,302,303,307,308].includes(response.status)) { url = new URL(response.headers.get('location'), url).href; await response.body?.cancel(); continue; }
-    if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) { await response.body?.cancel(); throw new Error('사이트에서 상품 정보를 제공하지 않습니다. 직접 입력해 주세요.'); }
-    const reader = response.body.getReader(); let bytes = 0; const chunks = [];
-    try { for (;;) { const {done,value} = await reader.read(); if (done) break; bytes += value.length; if (bytes > 1500000) throw new Error('페이지가 너무 큽니다. 직접 입력해 주세요.'); chunks.push(Buffer.from(value)); } } finally { await reader.cancel(); }
-    return parseMetadata(Buffer.concat(chunks).toString('utf8'), url);
-  }
-  throw new Error('리디렉션이 너무 많습니다. 직접 입력해 주세요.');
-}
 const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/categories.js': ['categories.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
 const server = http.createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname;
@@ -78,7 +62,7 @@ const server = http.createServer(async (req, res) => {
     if (path.startsWith('/api/')) {
       if (!authorized(req)) return send(401, { error: '관리자 키를 확인해 주세요.' });
       if (path === '/api/auth' && req.method === 'POST') return send(200, { ok: true });
-      if (path === '/api/metadata' && req.method === 'POST') { const {url} = await body(req); return send(200, await metadata(url)); }
+      if (path === '/api/metadata' && req.method === 'POST') { const {url} = await body(req); return send(200, await fetchMetadata(url)); }
       if (path === '/api/links/bulk-delete' && req.method === 'POST') {
         const value = await body(req);
         if (!Array.isArray(value?.ids) || !value.ids.length || !value.ids.every(id => Number.isSafeInteger(id) && id > 0)) {
@@ -108,6 +92,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(readFileSync(resolve(root, 'public', files[path][0])));
     }
     send(404, {error:'페이지를 찾을 수 없습니다.'});
-  } catch (e) { send(400, { error: e.message === 'fetch failed' ? '자동 수집에 연결하지 못했습니다. 상품 정보를 직접 입력해 주세요.' : e.message }); }
+  } catch (e) {
+    if (e instanceof MetadataError) return send(e.status, {error:e.message, code:e.code, ...(e.upstreamStatus ? {upstreamStatus:e.upstreamStatus} : {})});
+    send(400, { error: e.message === 'fetch failed' ? '자동 수집에 연결하지 못했습니다. 상품 정보를 직접 입력해 주세요.' : e.message }); }
 });
 server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log(`eco.log94 v${APP_VERSION} listening on port ${server.address().port}. Admin key file: ${keyPath}`));

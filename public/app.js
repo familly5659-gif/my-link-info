@@ -42,6 +42,7 @@ const source = () => links.length ? links : samples;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, ...options.headers } });
+  if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('상품 관리 서버에 연결하지 못했습니다. 서버가 실행 중인지 확인해 주세요.');
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || '요청에 실패했어요.');
   return result;
@@ -187,11 +188,27 @@ function populateSubcategories(value = '기타') {
 form.elements.category.onchange = () => populateSubcategories();
 populateSubcategories();
 
+let metadataAttempt = 0;
+let metadataController = null;
+function cancelMetadata() {
+  metadataAttempt++;
+  metadataController?.abort();
+  metadataController = null;
+  $('#fetch-meta').disabled = false;
+  $('#fetch-meta').textContent = '↗ 링크에서 상품 정보 가져오기';
+}
+$('#editor').addEventListener('close', cancelMetadata);
+form.elements.url.addEventListener('input', () => {
+  cancelMetadata();
+  $('#meta-status').textContent = '링크가 변경됐어요. 상품 정보를 다시 가져올 수 있습니다.';
+});
+
 function openEditor(link) {
+  cancelMetadata();
   editId = link?.id || null;
   form.reset();
   form.querySelector('.form-error').textContent = '';
-  $('#meta-status').textContent = '쿠팡·토스쇼핑·Threads 링크를 지원해요. 가져온 정보는 수정할 수 있어요.';
+  $('#meta-status').textContent = '판매처가 자동 수집을 허용한 정보만 가져옵니다. 실패해도 아래에서 직접 입력해 저장할 수 있어요.';
   if (link) {
     for (const field of ['title', 'summary', 'image', 'category', 'url']) form.elements[field].value = link[field];
     populateSubcategories(link.subcategory);
@@ -204,15 +221,48 @@ function openEditor(link) {
 }
 $('#add').onclick = () => openEditor();
 $('#fetch-meta').onclick = async () => {
+  const input = form.elements.url;
+  if (!input.value.trim() || !input.checkValidity()) {
+    $('#meta-status').textContent = '상품 또는 Threads HTTPS 링크를 먼저 입력해 주세요.';
+    input.focus();
+    return;
+  }
+  cancelMetadata();
+  const attempt = metadataAttempt;
+  const url = input.value.trim();
+  metadataController = new AbortController();
   const button = $('#fetch-meta');
   button.disabled = true;
-  $('#meta-status').textContent = '상품 정보를 가져오는 중이에요…';
+  button.textContent = '상품 정보를 가져오는 중…';
+  $('#meta-status').textContent = '판매처에 공개된 상품 정보를 확인하고 있어요. 최대 10초 정도 걸릴 수 있습니다.';
   try {
-    const meta = await api('/api/metadata', { method: 'POST', body: JSON.stringify({ url: form.elements.url.value }) });
-    for (const name of ['title', 'summary', 'image']) if (meta[name]) form.elements[name].value = meta[name];
-    $('#meta-status').textContent = meta.title ? '정보를 가져왔어요. 내용을 확인하고 저장해 주세요.' : '공개된 상품 정보가 없어요. 아래에서 직접 입력해 주세요.';
-  } catch (error) { $('#meta-status').textContent = error.message; }
-  finally { button.disabled = false; }
+    const meta = await api('/api/metadata', { method: 'POST', signal: metadataController.signal, body: JSON.stringify({ url }) });
+    if (attempt !== metadataAttempt || !$('#editor').open || input.value.trim() !== url) return;
+    const fields = ['title', 'summary', 'image'].filter(name => typeof meta[name] === 'string' && meta[name].trim());
+    if (!fields.length) {
+      $('#meta-status').textContent = '가져올 수 있는 공개 상품 정보가 없어요. 상품 정보를 직접 입력해 주세요.';
+      return;
+    }
+    const previous = fields.some(name => form.elements[name].value.trim() && form.elements[name].value !== meta[name]);
+    if (previous && !confirm('현재 입력한 상품 정보를 가져온 정보로 바꿀까요? 취소하면 기존 내용은 유지됩니다.')) {
+      $('#meta-status').textContent = '기존에 입력한 정보를 유지했어요. 필요한 내용만 직접 수정할 수 있습니다.';
+      return;
+    }
+    for (const name of fields) form.elements[name].value = meta[name];
+    const labels = { title: '상품명', summary: '설명', image: '썸네일' };
+    const missing = Object.keys(labels).filter(name => !fields.includes(name));
+    $('#meta-status').textContent = missing.length
+      ? `일부 정보를 가져왔어요. ${missing.map(name => labels[name]).join('·')}은 공개 정보가 없어 직접 입력해 주세요. 기존에 입력한 값은 유지됩니다.`
+      : '상품명·설명·썸네일 주소를 가져왔어요. 내 리뷰에 맞게 수정한 뒤 저장해 주세요.';
+  } catch (error) {
+    if (attempt === metadataAttempt && error.name !== 'AbortError') $('#meta-status').textContent = error.message;
+  } finally {
+    if (attempt === metadataAttempt) {
+      metadataController = null;
+      button.disabled = false;
+      button.textContent = '↗ 링크에서 상품 정보 가져오기';
+    }
+  }
 };
 form.onsubmit = async event => {
   event.preventDefault();
