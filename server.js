@@ -5,6 +5,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { parseMetadata } from './metadata.js';
+import { normalizeCategory } from './public/categories.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dataDir = resolve(process.env.DATA_DIR || resolve(root, '.data'));
@@ -14,6 +15,11 @@ if (!existsSync(keyPath)) writeFileSync(keyPath, randomBytes(24).toString('hex')
 const adminKey = process.env.ADMIN_KEY || readFileSync(keyPath, 'utf8').trim();
 const db = new DatabaseSync(resolve(dataDir, 'links.sqlite'));
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS links (id INTEGER PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL, url TEXT NOT NULL, image TEXT NOT NULL, category TEXT NOT NULL, platform TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)');
+// Preserve existing products and add the second category level in place.
+if (!db.prepare('PRAGMA table_info(links)').all().some(column => column.name === 'subcategory')) {
+  db.exec("ALTER TABLE links ADD COLUMN subcategory TEXT NOT NULL DEFAULT '기타'");
+}
+db.prepare("UPDATE links SET category='주방' WHERE category='살림·주방'").run();
 const allowed = ['coupang.com', 'toss.im', 'toss.me', 'tossshopping.com', 'threads.com', 'threads.net'];
 export function validUrl(value) {
   try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') && allowed.some(h => u.hostname === h || u.hostname.endsWith('.' + h)); } catch { return false; }
@@ -41,7 +47,7 @@ async function metadata(url) {
   }
   throw new Error('리디렉션이 너무 많습니다. 직접 입력해 주세요.');
 }
-const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
+const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/categories.js': ['categories.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
 const server = http.createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname;
   const send = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); };
@@ -72,15 +78,25 @@ const server = http.createServer(async (req, res) => {
       if (!authorized(req)) return send(401, { error: '관리자 키를 확인해 주세요.' });
       if (path === '/api/auth' && req.method === 'POST') return send(200, { ok: true });
       if (path === '/api/metadata' && req.method === 'POST') { const {url} = await body(req); return send(200, await metadata(url)); }
+      if (path === '/api/links/bulk-delete' && req.method === 'POST') {
+        const value = await body(req);
+        if (!Array.isArray(value?.ids) || !value.ids.length || !value.ids.every(id => Number.isSafeInteger(id) && id > 0)) {
+          return send(400, {error:'삭제할 상품을 선택해 주세요.'});
+        }
+        const ids = [...new Set(value.ids)];
+        const result = db.prepare(`DELETE FROM links WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+        return send(200, {ok:true, deleted:result.changes});
+      }
       const match = path.match(/^\/api\/links\/(\d+)$/);
       if ((path === '/api/links' && req.method === 'POST') || (match && req.method === 'PUT')) {
         const v = await body(req);
-        if (!validUrl(v.url) || !v.title?.trim() || v.title.length > 160 || (v.summary || '').length > 1000 || !['살림·주방','디지털','패션·뷰티','라이프'].includes(v.category)) return send(400, { error: '제목, 지원하는 링크, 카테고리를 확인해 주세요.' });
+        const classification = normalizeCategory(v.category, v.subcategory ?? '기타');
+        if (!validUrl(v.url) || typeof v.title !== 'string' || !v.title.trim() || v.title.length > 160 || typeof (v.summary ?? '') !== 'string' || (v.summary || '').length > 1000 || !classification) return send(400, { error: '제목, 지원하는 링크, 카테고리를 확인해 주세요.' });
         if (v.image && (!/^https:\/\//.test(v.image) || v.image.length > 2000)) return send(400, { error: '썸네일은 HTTPS 이미지 주소를 입력해 주세요.' });
         const platform = new URL(v.url).hostname.includes('coupang') ? '쿠팡' : new URL(v.url).hostname.includes('toss') ? '토스쇼핑' : 'Threads';
-        const values = [v.title.trim(), v.summary || '', v.url, v.image || '', v.category, platform];
-        if (match) { const result = db.prepare('UPDATE links SET title=?,summary=?,url=?,image=?,category=?,platform=? WHERE id=?').run(...values, Number(match[1])); if (!result.changes) return send(404, {error:'상품을 찾을 수 없습니다.'}); }
-        else db.prepare('INSERT INTO links (title,summary,url,image,category,platform) VALUES (?,?,?,?,?,?)').run(...values);
+        const values = [v.title.trim(), v.summary || '', v.url, v.image || '', classification.category, platform, classification.subcategory];
+        if (match) { const result = db.prepare('UPDATE links SET title=?,summary=?,url=?,image=?,category=?,platform=?,subcategory=? WHERE id=?').run(...values, Number(match[1])); if (!result.changes) return send(404, {error:'상품을 찾을 수 없습니다.'}); }
+        else db.prepare('INSERT INTO links (title,summary,url,image,category,platform,subcategory) VALUES (?,?,?,?,?,?,?)').run(...values);
         return send(200, { ok: true });
       }
       if (match && req.method === 'DELETE') { db.prepare('DELETE FROM links WHERE id=?').run(Number(match[1])); return send(200, {ok:true}); }

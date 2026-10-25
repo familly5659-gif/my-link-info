@@ -77,3 +77,25 @@ button:disabled { opacity: .5; cursor: wait; }
   .card-body p { font-size: 11px; }
   dialog { padding: 22px; }
 }
+
+.category-browser { padding: 1px 0 12px; }
+.category-tabs, .subcategory-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.category-chip { min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: #fff; color: #65705f; font-size: 12px; }
+.category-chip span { font-size: 10px; opacity: .65; margin-left: 3px; }
+.category-chip.active { border-color: var(--green); background: var(--green); color: #fff; }
+.subcategory-tabs { margin-top: 9px; padding: 10px; border-radius: 10px; background: #f5f7f2; }
+.subcategory-tabs .category-chip { background: transparent; border-color: transparent; font-size: 11px; }
+.subcategory-tabs .category-chip.active { background: #fff; border-color: #d4decc; color: var(--green); }
+.category-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.bulk-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px; margin-bottom: 10px; border: 1px solid #dce5d5; border-radius: 8px; background: #f5f8f1; font-size: 11px; }
+.bulk-toolbar label, .select-product { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer; }
+#selected-count { color: var(--muted); }
+.danger-button { margin-left: auto; padding: 8px 10px; border: 1px solid #e8cfc8; border-radius: 6px; background: #fff; color: #a64532; font-size: 11px; }
+.danger-button:disabled { cursor: default; opacity: .45; }
+.card.selected { border-color: #88a273; background: #fafcf7; }
+.card-controls { align-items: center; }
+.select-product { margin-right: auto; color: #78866d; font-size: 11px; }
+.card-controls [data-edit] { color: var(--green); border: 1px solid #dbe4d5; border-radius: 5px; padding: 6px 10px; font-weight: 600; }
+.card-controls [data-delete] { color: #a36757; }
+#admin-help { margin: 0 0 10px; }

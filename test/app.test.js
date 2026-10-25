@@ -69,3 +69,38 @@ test('thumbnail route serves a retained image and refuses untrusted proxy hosts'
  await request(`/api/links/${saved.id}`,'PUT',{...item,image:'https://127.0.0.1/image.jpg'});
  assert.equal((await request(`/thumbnail/${saved.id}`)).status,400);
 });
+
+test('two-level categories validate pairs and can be edited without changing the affiliate URL', async () => {
+ const product={...item,title:'분류 테스트 수세미',category:'주방',subcategory:'수세미'};
+ assert.equal((await request('/api/links','POST',product)).status,200);
+ const record=(await(await request('/api/links')).json()).find(link=>link.title===product.title);
+ assert.equal(record.category,'주방');assert.equal(record.subcategory,'수세미');
+ assert.equal((await request(`/api/links/${record.id}`,'PUT',{...product,category:'청소',subcategory:'청소용품'})).status,200);
+ const updated=(await(await request('/api/links')).json()).find(link=>link.id===record.id);
+ assert.equal(updated.category,'청소');assert.equal(updated.subcategory,'청소용품');assert.equal(updated.url,product.url);
+ const before=(await(await request('/api/links')).json()).length;
+ for(const classification of [{category:'청소',subcategory:'수세미'},{category:'주방',subcategory:'없는분류'},{category:'constructor',subcategory:'기타'}]) {
+  assert.equal((await request('/api/links','POST',{...item,...classification})).status,400);
+ }
+ assert.equal((await(await request('/api/links')).json()).length,before);
+ const module=await request('/categories.js');assert.equal(module.status,200);assert.match(await module.text(),/수세미/);
+});
+
+test('bulk deletion is authenticated, rejects invalid selection, and leaves unselected products intact', async () => {
+ const ids=[];
+ for(const title of ['일괄 삭제 A','일괄 삭제 B','유지할 상품']) {
+  await request('/api/links','POST',{...item,title,category:'청소',subcategory:'청소용품'});
+  ids.push((await(await request('/api/links')).json()).find(link=>link.title===title).id);
+ }
+ assert.equal((await request('/api/links/bulk-delete','POST',{ids:ids.slice(0,2)},'wrong')).status,401);
+ const before=await(await request('/api/links')).json();
+ for(const value of [{},{ids:[]},{ids:[ids[0],-1]},{ids:[String(ids[0])]},{ids:[1.2]},null]) {
+  assert.equal((await request('/api/links/bulk-delete','POST',value)).status,400);
+ }
+ assert.deepEqual(await(await request('/api/links')).json(),before);
+ const response=await request('/api/links/bulk-delete','POST',{ids:[ids[0],ids[0],ids[1]]});
+ assert.equal(response.status,200);assert.equal((await response.json()).deleted,2);
+ const remaining=await(await request('/api/links')).json();
+ assert.deepEqual(remaining,before.filter(link=>!ids.slice(0,2).includes(link.id)));
+ assert.ok(remaining.some(link=>link.id===ids[2]));
+});
